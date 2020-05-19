@@ -1,6 +1,7 @@
 package com.developercookie;
 
 import org.apache.zookeeper.*;
+import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,7 +36,7 @@ public class ClientApp implements Watcher {
         clientApp.connectToZookeeper();
         clientApp.createZnodeNameSpace();
         clientApp.volunterForLeaderRole();
-        clientApp.electLeader();
+        clientApp.reelectLeader();
         clientApp.run();
         clientApp.close();
         logger.warn("Successfully Disconnect from Zookeeper");
@@ -80,15 +81,28 @@ public class ClientApp implements Watcher {
      * @throws KeeperException      the keeper exception
      * @throws InterruptedException the interrupted exception
      */
-    public void electLeader() throws KeeperException, InterruptedException {
-        List<String> allClientapps = zooKeeper.getChildren(DEFAULT_ELECTION_ZNODE_Path, false);
-        Collections.sort(allClientapps);
-        String firstClientApp = allClientapps.get(0);
-        if (this.currentClientAppZnodeName.equals(firstClientApp)) {
-            logger.warn("I am the Leader");
-        } else {
-            logger.warn("I am not the Leader Elected Leader is {} ", firstClientApp);
+    public void reelectLeader() throws KeeperException, InterruptedException {
+        Stat predecessorStat = null;
+        while (predecessorStat == null) {
+            List<String> allClientapps = zooKeeper.getChildren(DEFAULT_ELECTION_ZNODE_Path, false);
+            Collections.sort(allClientapps);
+            String firstClientApp = allClientapps.get(0);
+            if (this.currentClientAppZnodeName.equals(firstClientApp)) {
+                logger.warn("I am the Leader");
+                return;
+            } else {
+                // If you are not a Leader then atleast one Leader should have been Elected.
+                // the Next Client App which is Follower always watches the previous Client App for Failure.
+                // Getting the PreDecessor Index
+                int predecessorIndex = Collections.binarySearch(allClientapps, currentClientAppZnodeName) - 1;
+                String predecessorZnodename = allClientapps.get(predecessorIndex);
+                // Second Argument passed in the below exists method is the watcher argument . It is used to get Notified when the predecessor Client App Dies.
+                predecessorStat = zooKeeper.exists(DEFAULT_ELECTION_ZNODE_Path + "/" + predecessorZnodename, this);
+                logger.warn("I am not the Leader Elected Leader is {} ", firstClientApp);
+                logger.warn("Watching the Predecessor Znode {}", predecessorZnodename);
+            }
         }
+
     }
 
     /**
@@ -123,6 +137,15 @@ public class ClientApp implements Watcher {
                     synchronized (zooKeeper) {
                         zooKeeper.notifyAll();
                     }
+                }
+                break;
+            case NodeDeleted:
+                try {
+                    reelectLeader();
+                } catch (InterruptedException e) {
+                    logger.error("InterruptedException Exception ", e);
+                } catch (KeeperException e) {
+                    logger.error("KeeperException Exception ", e);
                 }
         }
     }
