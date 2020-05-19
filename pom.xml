@@ -30,7 +30,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>com.developercookie.LeaderElection</mainClass>
+                            <mainClass>com.developercookie.ClientApp</mainClass>
                         </manifest>
                     </archive>
                     <descriptorRefs>
